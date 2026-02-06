@@ -1,11 +1,14 @@
+import logging
+from datetime import datetime
+
+from fastapi import HTTPException, status
 from typing import Generic, TypeVar
 
 from pydantic import BaseModel
-from sqlalchemy.exc import OperationalError, SQLAlchemyError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError, InterfaceError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.connection import async_session_maker
-from src.logger import setup_logging
 from src.models import Base
 
 TCreate = TypeVar("TCreate", bound=BaseModel)
@@ -13,10 +16,10 @@ TRead = TypeVar("TRead", bound=BaseModel)
 TUpdate = TypeVar("TUpdate", bound=BaseModel)
 TModel = TypeVar("TModel", bound=Base)
 
-database_logger = setup_logging("Бд")
+database_logger = logging.getLogger("Бд")
+
 
 class BaseManager(Generic[TCreate, TRead, TUpdate, TModel]):
-
     create_schema: type[TCreate]
     read_schema: type[TRead]
     update_schema: type[TUpdate]
@@ -29,8 +32,10 @@ class BaseManager(Generic[TCreate, TRead, TUpdate, TModel]):
         await session.refresh(instance)
         return instance
 
-    async def create(self, create_data: TCreate, session: AsyncSession | None = None) -> TRead:
-        database_logger.debug(f"Начало создания {self.model.__name__}")
+    async def create(self, create_data: TCreate,
+                     session: AsyncSession | None = None,
+                     request_id: str | None = None) -> TRead:
+        database_logger.debug(f"{request_id} | Начало создания {self.model.__name__}")
 
         data = create_data.model_dump(exclude_unset=True)
 
@@ -45,20 +50,20 @@ class BaseManager(Generic[TCreate, TRead, TUpdate, TModel]):
 
             await session.commit()
 
-            database_logger.debug(f"Успешно создан {self.model.__name__}: {entity}")
+            database_logger.debug(f"{request_id} | Успешно создан {self.model.__name__}: {entity}")
 
             return self.read_schema.model_validate(entity, from_attributes=True)
 
-        except OperationalError as e:
+        except (OperationalError, InterfaceError) as e:
             database_logger.critical(
-                f"База данных недоступна {self.model.__name__}: {e}",
+                f"{request_id} | База данных недоступна {self.model.__name__}: {e}",
                 exc_info=True,
             )
-            raise ConnectionError(f"База данных недоступна: {e}") from e
+            raise ConnectionError(f"{request_id} | База данных недоступна: {e}") from e
 
         except SQLAlchemyError as e:
             database_logger.error(
-                f"Ошибка БД при создании {self.model.__name__}: {data}, Ошибка: {e}",
+                f"{request_id} | Ошибка БД при создании {self.model.__name__}: {data}, Ошибка: {e}",
                 exc_info=True,
             )
             raise
@@ -70,7 +75,58 @@ class BaseManager(Generic[TCreate, TRead, TUpdate, TModel]):
             )
             raise
 
+    async def delete(self, index_entity: str,
+                     session: AsyncSession | None = None,
+                     request_id: str | None = None) -> TRead:
+        database_logger.debug(f"{request_id} | Начало удаления {self.model.__name__} с индексом: {index_entity}")
+
+        try:
+            if session is None:
+
+                async with async_session_maker() as session:
+                    entity: type[TModel] = await session.get(self.model, index_entity)
+
+            else:
+                entity: type[TModel] = await session.get(self.model, index_entity)
+
+            if entity is None:
+                database_logger.debug(
+                    f"{request_id} | Объект {self.model.__name__} с индексом: {index_entity} не найден")
+
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Object not found')
+
+            if not entity.is_active:
+                database_logger.debug(
+                    f"{request_id} | Объект {self.model.__name__} с индексом: {index_entity} уже удалён")
+
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Object already deleted')
+
+            entity.is_active = False
+            entity.delete_at = datetime.now()
+            await session.commit()
+
+            database_logger.debug(
+                f"{request_id} | Объект {self.model.__name__} с индексом: {index_entity} удалён")
+
+            return self.read_schema.model_validate(entity, from_attributes=True)
+
+        except HTTPException:
+            raise
+
+        except (OperationalError, InterfaceError) as e:
+            database_logger.critical(
+                f"{request_id} | База данных недоступна {self.model.__name__}: {e}",
+                exc_info=True,
+            )
+            raise ConnectionError(f"{request_id} | База данных недоступна: {e}") from e
+
+        except Exception as e:
+            database_logger.error(
+                f"Ошибка при удалении {self.model.__name__}: {e}",
+                exc_info=True,
+            )
+            raise
+
     @property
     def __name__(self):
         return self.__class__.__name__
-

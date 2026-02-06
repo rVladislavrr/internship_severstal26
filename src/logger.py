@@ -1,8 +1,10 @@
 import logging
 import sys
 from logging import Formatter, StreamHandler
+from typing import Optional
 
 from src.config import settings
+
 
 class ColorFormatter(Formatter):
     """
@@ -30,19 +32,25 @@ class ColorFormatter(Formatter):
         return formatter.format(record)
 
 
-def setup_logging(name: str, log_level: str = settings.LOG_LEVEL):
+def setup_logging(name: Optional[str] = None, log_level: str = settings.LOG_LEVEL):
     """
-    Функция для создания объекта логера для логирования внутри файла
-    :param name: имя логера
-    :param log_level: уровень логирования, по дефолту как в приложении
-    :return: объект логера
+    Функция для настройки логгера
+    :param name: имя логгера (если None - настраивает корневой логгер)
+    :param log_level: уровень логирования
+    :return: объект логгера
     """
-    logger = logging.getLogger(name)
-    logger.setLevel(log_level)
+    logger = logging.getLogger(name) if name else logging.getLogger()
 
-    console_handler = StreamHandler(sys.stdout)
-    console_handler.setFormatter(ColorFormatter())
+    if not logger.handlers:
+        logger.setLevel(log_level)
 
-    logger.addHandler(console_handler)
+        logger.handlers.clear()
+
+        console_handler = StreamHandler(sys.stdout)
+        console_handler.setFormatter(ColorFormatter())
+        logger.addHandler(console_handler)
+
+        if name:
+            logger.propagate = False
 
     return logger

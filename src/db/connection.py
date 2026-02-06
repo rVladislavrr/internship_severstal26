@@ -1,7 +1,6 @@
 from typing import AsyncGenerator
 
 from sqlalchemy.pool import AsyncAdaptedQueuePool
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from src.config import settings
 
@@ -18,11 +17,3 @@ async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_maker() as session:
         yield session
-
-async def ping_database():
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(text("SELECT 1"))
-        return
-    except Exception as e:
-        raise TimeoutError('Отсутствует изначальное соединение с бд')

@@ -1,2 +1,2 @@
-from .auth import router as auth_router  # noqa: F401
+from .subjects import router as subjects_router  # noqa: F401
 
