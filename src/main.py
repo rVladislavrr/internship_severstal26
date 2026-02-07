@@ -8,6 +8,7 @@ import src.api.routers.v1 as v1
 from src.config import settings
 from src.logger import setup_logging
 from src.middlewares.loggingMiddleware import LoggingMiddleware
+from src.service.redis_conn import redis_client
 from src.utils.check_db import ping_database
 
 @asynccontextmanager
@@ -16,27 +17,30 @@ async def lifespan(app: FastAPI):
     log = logging.getLogger(__name__)
 
     log.info('Начинается lifespan')
+    await redis_client.connect()
     await ping_database()
     log.info('Стартовый lifespan успешно прошёл')
     yield
+    await redis_client.close()
     log.info('завершающий lifespan')
 
-if __name__ == "__main__":
-    app = FastAPI(
+app = FastAPI(
         lifespan=lifespan,
     )
 
-    app.include_router(v1.subjects_router, prefix='/api')
+app.include_router(v1.subjects_router, prefix='/api')
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=['*'],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=['*'],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-    app.add_middleware(LoggingMiddleware)
+app.add_middleware(LoggingMiddleware)
+
+if __name__ == "__main__":
     uvicorn.run(
         app,
         host=settings.APP_HOST,
