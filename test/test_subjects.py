@@ -108,3 +108,22 @@ class TestSubjects:
         result = await async_client.get("/api/subjects", params=params)
         for item in result.json():
             assert 1 <= item["id"] <= 3
+
+    @staticmethod
+    @pytest.mark.asyncio
+    async def test_stat(async_client, test_subjects_for_get):
+
+        response = await async_client.get("/api/subjects/statistics?end_date=2027-01-01")
+        result = response.json()
+        assert response.status_code == status.HTTP_200_OK
+
+        assert result.get('added_count') == 5
+        assert result.get("deleted_count") == 0
+        assert result.get("average_length") == 22
+        assert result.get("average_weight") == 12
+        assert result.get("max_length") == 23
+        assert result.get("min_length") == 21
+        assert result.get("max_weight") == 13
+        assert result.get("min_weight") == 11
+        assert result.get("total_weight") == 60
+        assert result.get("total_count") == 5

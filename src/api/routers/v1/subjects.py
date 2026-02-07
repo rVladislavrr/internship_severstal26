@@ -1,5 +1,5 @@
 import logging
-from datetime import date
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Path, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -81,7 +81,6 @@ async def create_subjects(subject_data: subjects.CreateSubjects,
             detail='Error in object creation',
         )
 
-
 @router.delete('/subjects/{subject_id}',
                response_model=subjects.ReadSubjects,
                status_code=status.HTTP_200_OK,
@@ -139,7 +138,6 @@ async def delete_subject(subject_id: int = Path(..., ge=0, description='Айди
             }
             )
 async def get_with_filters(
-        background_task: BackgroundTasks,
         filters: dict = Depends(get_filter_query),
         request_id: str = Depends(get_request_id),
         session: AsyncSession = Depends(get_async_session),
@@ -180,4 +178,72 @@ async def get_with_filters(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail='Error select subject',
+        )
+
+
+@router.get('/subjects/statistics')
+async def get_statistics(
+        start_date: datetime | None = Query(None),
+        end_date: datetime | None = Query(None),
+        request_id: str = Depends(get_request_id),
+        session: AsyncSession = Depends(get_async_session)):
+    router_logger.info(f"{request_id} | Получение статистики по Subjects")
+    try:
+        return await subjects_manager.get_subjects_statistics(
+            start_date=start_date,
+            end_date=end_date,
+            request_id=request_id,
+            session=session,
+        )
+
+    except HTTPException as e:
+        router_logger.info(f'{request_id} |' + e.detail)
+        raise
+
+    except ConnectionError:
+        router_logger.critical(f'{request_id} | База данных не доступна')
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail='Database connection error',
+        )
+
+    except Exception as e:
+        router_logger.error(f'{request_id} | Ошибка в получении статистики', exc_info=e)
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail='Error select subject',
+        )
+@router.get('/subjects/{subject_id}',
+            response_model=subjects.ReadSubjects,
+            status_code=status.HTTP_200_OK,
+            )
+async def get_subject(
+        subject_id: int,
+        request_id: str = Depends(get_request_id),
+        session: AsyncSession = Depends(get_async_session),
+):
+    router_logger.info(f'{request_id} | Получение Subject, id={subject_id}')
+    try:
+        subject_read: subjects.ReadSubjects = await subjects_manager.get(subject_id,session , request_id)
+
+        router_logger.info(f'{request_id} | Успешно получен Subject, id={subject_id}')
+        return subject_read
+
+    except HTTPException as e:
+        router_logger.info(f'{request_id} |' + e.detail)
+        raise
+    except ConnectionError:
+        router_logger.critical(f'{request_id} | База данных не доступна')
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail='Database connection error',
+        )
+    except Exception:
+        router_logger.error(f'{request_id} | Ошибка в получении')
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail='Error find subject',
         )

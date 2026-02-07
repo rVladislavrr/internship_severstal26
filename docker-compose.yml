@@ -1,18 +1,18 @@
+version: '3.8'
+
 services:
   redis:
     image: redis:7.2-alpine
     container_name: redis_internship
-    environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
     ports:
-      - "127.0.0.1:6379:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
       - ./redis.conf:/usr/local/etc/redis/redis.conf:ro
     restart: unless-stopped
-    command: redis-server /usr/local/etc/redis/redis.conf --requirepass ${REDIS_PASSWORD}
+    command: redis-server /usr/local/etc/redis/redis.conf --requirepass ${REDIS_PASSWORD:-admin}
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD:-admin}", "ping"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -22,15 +22,15 @@ services:
     container_name: postgres_internship
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASS}
-      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASS:-admin}
+      POSTGRES_DB: ${DB_NAME:-intership}
     ports:
-      - "127.0.0.1:${DB_PORT}:5432"
+      - "127.0.0.1:${DB_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -40,20 +40,45 @@ services:
     container_name: postgres_internship_test
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${DB_USER_TEST}
-      POSTGRES_PASSWORD: ${DB_PASS_TEST}
-      POSTGRES_DB: ${DB_NAME_TEST}
+      POSTGRES_USER: ${DB_USER_TEST:-postgres_test}
+      POSTGRES_PASSWORD: ${DB_PASS_TEST:-admin_test}
+      POSTGRES_DB: ${DB_NAME_TEST:-intership_test}
     ports:
-      - "127.0.0.1:${DB_PORT_TEST}:5432"
+      - "127.0.0.1:${DB_PORT_TEST:-5434}:5432"
     volumes:
       - postgres_data_test:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER_TEST}" ]
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER_TEST:-postgres_test}" ]
       interval: 30s
       timeout: 10s
       retries: 3
 
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: intership
+    command: >
+      sh -c "alembic upgrade head &&
+             gunicorn src.main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_NAME: ${DB_NAME}
+      REDIS_USER_PASSWORD: ${REDIS_USER_PASSWORD}
+      REDIS_HOST: redis
+    env_file:
+      - .env
+    restart: unless-stopped
+
 volumes:
   redis_data:
   postgres_data:
-  postgres_data_test:  # Added this missing volume definition
+  postgres_data_test:

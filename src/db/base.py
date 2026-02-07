@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
 from typing import Generic, TypeVar
@@ -31,6 +31,52 @@ class BaseManager(Generic[TCreate, TRead, TUpdate, TModel]):
         await session.flush()
         await session.refresh(instance)
         return instance
+
+    async def get(self, entity_id: int,
+                  session: AsyncSession | None = None,
+                  request_id: str | None = None) -> TRead:
+        database_logger.debug(f"{request_id} | Начало получения {self.model.__name__}")
+
+        try:
+            if session is None:
+
+                async with async_session_maker() as session:
+                    entity = await session.get(self.model, entity_id)
+
+            else:
+                entity = await session.get(self.model, entity_id)
+
+            if entity is None:
+                database_logger.debug(f"{request_id} | Не найден {self.model.__name__} id: {entity_id}")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,)
+
+            database_logger.debug(f"{request_id} | Успешно получен {self.model.__name__} id: {entity_id}")
+            return self.read_schema.model_validate(entity, from_attributes=True)
+
+        except HTTPException:
+            raise
+        except (OperationalError, InterfaceError) as e:
+            database_logger.critical(
+                f"{request_id} | База данных недоступна {self.model.__name__}: {e}",
+                exc_info=True,
+            )
+            raise ConnectionError(f"{request_id} | База данных недоступна: {e}") from e
+
+        except SQLAlchemyError as e:
+            database_logger.error(
+                f"{request_id} | Ошибка БД при получении {self.model.__name__}, Ошибка: {e}",
+                exc_info=True,
+            )
+            raise
+
+        except Exception as e:
+            database_logger.error(
+                f"Ошибка при получении {self.model.__name__}: {e}",
+                exc_info=True,
+            )
+            raise
+
+
 
     async def create(self, create_data: TCreate,
                      session: AsyncSession | None = None,
@@ -102,7 +148,7 @@ class BaseManager(Generic[TCreate, TRead, TUpdate, TModel]):
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Object already deleted')
 
             entity.is_active = False
-            entity.delete_at = datetime.now()
+            entity.delete_at = datetime.now(timezone.utc).replace(tzinfo=None)
             await session.commit()
 
             database_logger.debug(

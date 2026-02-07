@@ -75,7 +75,7 @@ async def test_subject(db_session):
 @pytest.fixture
 async def test_subjects_for_get(db_session):
     async with db_session as session:
-        result = await session.execute(
+        await session.execute(
             insert(SubjectsORM).values([
                 {"weight": 11, "length": 21, "is_active": True,
                  'create_at': date(2026, 12, 1)},
@@ -88,9 +88,8 @@ async def test_subjects_for_get(db_session):
                 {"weight": 12, "length": 22, "is_active": False,
                  "delete_at": datetime(2026, 12, 12), 'create_at': date(2026, 12, 9)},
             ]
-            ).returning(SubjectsORM)
+            )
         )
-        inserted = result.scalars().all()
         await session.commit()
 
 
